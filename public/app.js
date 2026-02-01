@@ -278,8 +278,60 @@ function formatTime(timestamp) {
   }
 }
 
-function renderMessages(messages) {
-  console.log("Rendering messages:", messages.length, "messages", messages.map(m => ({role: m.role, content: m.content?.substring(0, 50)})));
+// Track rendered message IDs for incremental updates
+const renderedMessageIds = new Set();
+
+function createMessageHTML(msg, index) {
+  const role = msg.role || "unknown";
+  const delay = Math.min(index * 0.05, 0.5);
+  const time = formatTime(msg.timestamp);
+  const msgId = msg.id || `msg-${index}`;
+  
+  // Tool message rendering
+  if (role === "tool") {
+    const toolIcon = msg.toolType === 'start' ? '▶' : '✓';
+    const toolClass = msg.toolType === 'start' ? 'tool-running' : 'tool-done';
+    const duration = msg.duration ? ` (${msg.duration}ms)` : '';
+    
+    return `
+      <div class="message tool ${toolClass}" data-msg-id="${msgId}" style="animation-delay: ${delay}s;">
+        <div class="avatar tool-avatar" title="Tool">${toolIcon}</div>
+        <div class="bubble tool-bubble">
+          <span class="tool-name">${escapeHtml(msg.toolName)}</span>
+          ${msg.toolType === 'end' && msg.duration ? `<span class="tool-duration">${duration}</span>` : ''}
+          ${time ? `<div class="timestamp">${time}</div>` : ''}
+        </div>
+      </div>
+    `;
+  }
+  
+  // Regular message rendering
+  const avatar = role === "user" ? "◈" : role === "assistant" ? "◉" : "◎";
+  const label = role === "user" ? "You" : role === "assistant" ? "Clawdbot" : "System";
+  
+  let contentClass = "";
+  let displayContent = msg.content || "";
+  
+  if (role === "assistant" && (!displayContent || displayContent.trim() === "")) {
+    contentClass = "thinking";
+    displayContent = "...";
+  }
+  
+  return `
+    <div class="message ${role}" data-msg-id="${msgId}" style="animation-delay: ${delay}s; display: flex !important;">
+      <div class="avatar" title="${label}">${avatar}</div>
+      <div class="bubble ${contentClass}">
+        ${role === "assistant" && contentClass === "thinking" 
+          ? `<span class="dots">${displayContent}</span>`
+          : escapeHtml(displayContent)}
+        ${time ? `<div class="timestamp">${time}</div>` : ''}
+      </div>
+    </div>
+  `;
+}
+
+function renderMessages(messages, incremental = false) {
+  console.log("Rendering messages:", messages.length, "incremental:", incremental);
   
   if (messages.length === 0) {
     messagesEl.innerHTML = `
@@ -289,6 +341,7 @@ function renderMessages(messages) {
         <span class="hint">Send a message via Telegram or Dashboard to start</span>
       </div>
     `;
+    renderedMessageIds.clear();
     return;
   }
   
@@ -298,7 +351,6 @@ function renderMessages(messages) {
     const msg = messages[i];
     const prevMsg = filteredMessages[filteredMessages.length - 1];
     
-    // Skip if this is an empty assistant message and previous was also assistant
     if (msg.role === "assistant" && 
         (!msg.content || msg.content === "(no content)" || msg.content === "(thinking...)") &&
         prevMsg && prevMsg.role === "assistant") {
@@ -308,55 +360,58 @@ function renderMessages(messages) {
     filteredMessages.push(msg);
   }
   
-  console.log("Filtered to:", filteredMessages.length, "messages");
+  // If not incremental or first render, do full render
+  if (!incremental || renderedMessageIds.size === 0) {
+    const html = filteredMessages.map((msg, index) => createMessageHTML(msg, index)).join("");
+    messagesEl.innerHTML = html;
+    
+    // Track all rendered IDs
+    renderedMessageIds.clear();
+    filteredMessages.forEach(msg => {
+      if (msg.id) renderedMessageIds.add(msg.id);
+    });
+    
+    // Scroll to bottom
+    const chatContainer = document.querySelector('.chat-container');
+    if (chatContainer) {
+      chatContainer.scrollTop = chatContainer.scrollHeight;
+    }
+    return;
+  }
   
-  // Render messages with tool call support
-  const html = filteredMessages.map((msg, index) => {
-    const role = msg.role || "unknown";
-    const delay = Math.min(index * 0.05, 0.5);
-    const time = formatTime(msg.timestamp);
+  // Incremental: only add new messages
+  let newMessagesAdded = false;
+  
+  filteredMessages.forEach((msg, index) => {
+    const msgId = msg.id || `msg-${index}`;
     
-    // Tool message rendering
-    if (role === "tool") {
-      const toolIcon = msg.toolType === 'start' ? '▶' : '✓';
-      const toolClass = msg.toolType === 'start' ? 'tool-running' : 'tool-done';
-      const duration = msg.duration ? ` (${msg.duration}ms)` : '';
-      
-      return `
-        <div class="message tool ${toolClass}" style="animation-delay: ${delay}s;">
-          <div class="avatar tool-avatar" title="Tool">${toolIcon}</div>
-          <div class="bubble tool-bubble">
-            <span class="tool-name">${escapeHtml(msg.toolName)}</span>
-            ${msg.toolType === 'end' && msg.duration ? `<span class="tool-duration">${duration}</span>` : ''}
-            ${time ? `<div class="timestamp">${time}</div>` : ''}
-          </div>
-        </div>
-      `;
+    // Skip if already rendered
+    if (renderedMessageIds.has(msgId)) {
+      // Check if tool message needs updating (start -> end)
+      if (msg.role === 'tool') {
+        const existingEl = messagesEl.querySelector(`[data-msg-id="${msgId}"]`);
+        if (existingEl && msg.toolType === 'end' && existingEl.classList.contains('tool-running')) {
+          // Replace with completed version
+          existingEl.outerHTML = createMessageHTML(msg, index);
+        }
+      }
+      return;
     }
     
-    // Regular message rendering
-    const avatar = role === "user" ? "◈" : role === "assistant" ? "◉" : "◎";
-    const label = role === "user" ? "You" : role === "assistant" ? "Clawdbot" : "System";
-    
-    let contentClass = "";
-    let displayContent = msg.content || "";
-    
-    if (role === "assistant" && (!displayContent || displayContent.trim() === "")) {
-      contentClass = "thinking";
-      displayContent = "...";
+    // New message - append it
+    const html = createMessageHTML(msg, index);
+    messagesEl.insertAdjacentHTML('beforeend', html);
+    renderedMessageIds.add(msgId);
+    newMessagesAdded = true;
+  });
+  
+  // Only scroll if new content was added
+  if (newMessagesAdded) {
+    const chatContainer = document.querySelector('.chat-container');
+    if (chatContainer) {
+      chatContainer.scrollTop = chatContainer.scrollHeight;
     }
-    
-    return `
-      <div class="message ${role}" style="animation-delay: ${delay}s; display: flex !important;">
-        <div class="avatar" title="${label}">${avatar}</div>
-        <div class="bubble ${contentClass}">
-          ${role === "assistant" && contentClass === "thinking" 
-            ? `<span class="dots">${displayContent}</span>`
-            : escapeHtml(displayContent)}
-          ${time ? `<div class="timestamp">${time}</div>` : ''}
-        </div>
-      </div>
-    `;
+  }
   }).join("");
   
   messagesEl.innerHTML = html;
@@ -480,11 +535,12 @@ async function refreshStatus() {
   }
 }
 
+let isFirstRender = true;
+
 async function refreshLogs() {
   try {
     console.log("refreshLogs: Starting");
     const data = await getJSON("/api/logs");
-    console.log("refreshLogs: Got data, sessionLines count:", data.sessionLines?.length);
     
     currentSessionFile = data.sessionFile;
     sessionMetaEl.textContent = data.sessionFile || "none";
@@ -496,7 +552,6 @@ async function refreshLogs() {
     
     // Parse chat messages from session
     const chatMessages = parseSessionLines(data.sessionLines || [], 50);
-    console.log("refreshLogs: parseSessionLines returned", chatMessages.length, "messages");
     
     // Parse tool calls from run logs
     const toolEvents = parseToolCallsFromLogs(data.runLines || []);
@@ -513,9 +568,7 @@ async function refreshLogs() {
     // Merge and sort by timestamp
     const allMessages = [...chatMessages, ...toolMessages].sort((a, b) => {
       return new Date(a.timestamp || 0) - new Date(b.timestamp || 0);
-    }).slice(-50); // Keep last 50 total
-    
-    console.log("refreshLogs: Total messages after merge:", allMessages.length);
+    }).slice(-50);
     
     messageHistory = allMessages;
     
@@ -525,7 +578,10 @@ async function refreshLogs() {
       return !serverContent.includes(pending.content);
     });
     
-    renderMessages([...messageHistory, ...pendingMessages]);
+    // Use incremental rendering after first load
+    renderMessages([...messageHistory, ...pendingMessages], !isFirstRender);
+    isFirstRender = false;
+    
   } catch (e) {
     messagesEl.innerHTML = `
       <div class="message system">

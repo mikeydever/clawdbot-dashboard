@@ -30,6 +30,123 @@ function execFileAsync(cmd, args, opts = {}) {
   });
 }
 
+async function sshCrontabRead(cfg) {
+  const args = sshArgs(cfg).concat(["crontab -l 2>/dev/null || true"]);
+  const { stdout } = await execFileAsync("ssh", args);
+  return stdout.replace(/\r/g, "");
+}
+
+async function sshCrontabWrite(cfg, content) {
+  let payload = content.replace(/\r/g, "");
+  if (!payload.endsWith("\n")) {
+    payload += "\n";
+  }
+  const escaped = payload.replace(/'/g, "'\"'\"'");
+  const cmd = `echo '${escaped}' | crontab -`;
+  const args = sshArgs(cfg).concat([cmd]);
+  await execFileAsync("ssh", args);
+}
+
+function parseCronLine(line) {
+  const trimmed = line.trim();
+  if (!trimmed) return null;
+  if (trimmed.startsWith("@")) {
+    const [schedule, ...rest] = trimmed.split(/\s+/);
+    if (!rest.length) return null;
+    return { schedule, command: rest.join(" ").trim(), raw: line };
+  }
+  const parts = trimmed.split(/\s+/);
+  if (parts.length < 6) return null;
+  return {
+    schedule: parts.slice(0, 5).join(" "),
+    command: parts.slice(5).join(" "),
+    raw: line
+  };
+}
+
+function describeCronJobs(text) {
+  const normalized = text ? text.replace(/\r/g, "") : "";
+  const lines = normalized ? normalized.split("\n") : [];
+  const jobs = [];
+  let pendingComments = [];
+
+  lines.forEach((line, index) => {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      pendingComments = [];
+      return;
+    }
+
+    if (trimmed.startsWith("#")) {
+      pendingComments.push({ text: trimmed.replace(/^#\s?/, ""), index });
+      return;
+    }
+
+    const parsed = parseCronLine(line);
+    if (!parsed) {
+      pendingComments = [];
+      return;
+    }
+
+    jobs.push({
+      lineIndex: index,
+      schedule: parsed.schedule,
+      command: parsed.command,
+      comment: pendingComments.length
+        ? pendingComments.map((c) => c.text).join("\n")
+        : null,
+      commentLineIndexes: pendingComments.map((c) => c.index),
+      raw: line
+    });
+    pendingComments = [];
+  });
+
+  return { jobs, lines };
+}
+
+function isValidCronSchedule(schedule) {
+  if (typeof schedule !== "string" || !schedule.trim()) return false;
+  if (schedule.trim().startsWith("@")) {
+    return true;
+  }
+  const parts = schedule.trim().split(/\s+/);
+  return parts.length === 5;
+}
+
+function sanitizeCronSingleLine(value) {
+  if (typeof value !== "string") return "";
+  return value.replace(/[\r\n]+/g, " ").trim();
+}
+
+function normalizeCronComment(value) {
+  if (typeof value !== "string") return "";
+  return value
+    .replace(/\r/g, "")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .join("\n")
+    .trim();
+}
+
+function makeCronLine(schedule, command) {
+  const sched = schedule.trim();
+  const cmd = command.trim();
+  if (sched.startsWith("@")) {
+    return `${sched} ${cmd}`.trim();
+  }
+  return `${sched} ${cmd}`.trim();
+}
+
+function formatCommentLines(comment) {
+  if (!comment) return [];
+  return comment
+    .split(/\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => `# ${line}`);
+}
+
 async function awsDescribeState(cfg) {
   const args = [
     "ec2",
@@ -242,6 +359,134 @@ app.post("/api/chat", async (req, res) => {
     await execFileAsync("ssh", touchArgs);
     
     res.json({ ok: true, sessionFile: latestSession });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.stderr || err.message });
+  }
+});
+
+app.get("/api/cron", async (req, res) => {
+  const cfg = loadConfig();
+  try {
+    const raw = await sshCrontabRead(cfg);
+    const { jobs } = describeCronJobs(raw);
+    res.json({
+      jobs: jobs.map((job, idx) => ({
+        id: `cron-${idx}`,
+        lineIndex: job.lineIndex,
+        schedule: job.schedule,
+        command: job.command,
+        comment: job.comment,
+        raw: job.raw
+      })),
+      raw
+    });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.stderr || err.message });
+  }
+});
+
+app.post("/api/cron", async (req, res) => {
+  const cfg = loadConfig();
+  const schedule = sanitizeCronSingleLine(req.body?.schedule || "");
+  const command = sanitizeCronSingleLine(req.body?.command || "");
+  const comment = normalizeCronComment(req.body?.comment || "");
+
+  if (!isValidCronSchedule(schedule)) {
+    return res.status(400).json({ ok: false, error: "Invalid cron schedule" });
+  }
+  if (!command) {
+    return res.status(400).json({ ok: false, error: "Command is required" });
+  }
+
+  try {
+    const raw = await sshCrontabRead(cfg);
+    const lines = raw ? raw.replace(/\r/g, "").split("\n") : [];
+    while (lines.length && !lines[lines.length - 1].trim()) {
+      lines.pop();
+    }
+    const newLines = [...lines];
+    if (newLines.length) {
+      newLines.push("");
+    }
+    const commentLines = formatCommentLines(comment);
+    commentLines.forEach((line) => newLines.push(line));
+    newLines.push(makeCronLine(schedule, command));
+    const content = newLines.join("\n");
+    await sshCrontabWrite(cfg, content);
+    const updatedRaw = await sshCrontabRead(cfg);
+    const { jobs } = describeCronJobs(updatedRaw);
+    res.json({
+      ok: true,
+      jobs: jobs.map((job, idx) => ({
+        id: `cron-${idx}`,
+        lineIndex: job.lineIndex,
+        schedule: job.schedule,
+        command: job.command,
+        comment: job.comment,
+        raw: job.raw
+      }))
+    });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.stderr || err.message });
+  }
+});
+
+app.put("/api/cron/:lineIndex", async (req, res) => {
+  const cfg = loadConfig();
+  const targetIndex = parseInt(req.params.lineIndex, 10);
+  if (Number.isNaN(targetIndex)) {
+    return res.status(400).json({ ok: false, error: "Invalid cron identifier" });
+  }
+
+  const schedule = sanitizeCronSingleLine(req.body?.schedule || "");
+  const command = sanitizeCronSingleLine(req.body?.command || "");
+  const comment = normalizeCronComment(req.body?.comment || "");
+
+  if (!isValidCronSchedule(schedule)) {
+    return res.status(400).json({ ok: false, error: "Invalid cron schedule" });
+  }
+  if (!command) {
+    return res.status(400).json({ ok: false, error: "Command is required" });
+  }
+
+  try {
+    const raw = await sshCrontabRead(cfg);
+    const { jobs, lines } = describeCronJobs(raw);
+    const job = jobs.find((j) => j.lineIndex === targetIndex);
+    if (!job) {
+      return res.status(404).json({ ok: false, error: "Cron job not found" });
+    }
+
+    const skipCommentIndexes = new Set(job.commentLineIndexes || []);
+    const updatedLines = [];
+    for (let i = 0; i < lines.length; i++) {
+      if (skipCommentIndexes.has(i)) {
+        continue;
+      }
+      if (i === job.lineIndex) {
+        const newComments = formatCommentLines(comment);
+        newComments.forEach((line) => updatedLines.push(line));
+        updatedLines.push(makeCronLine(schedule, command));
+      } else {
+        updatedLines.push(lines[i]);
+      }
+    }
+
+    const content = updatedLines.join("\n");
+    await sshCrontabWrite(cfg, content);
+    const updatedRaw = await sshCrontabRead(cfg);
+    const nextJobs = describeCronJobs(updatedRaw).jobs;
+    res.json({
+      ok: true,
+      jobs: nextJobs.map((job, idx) => ({
+        id: `cron-${idx}`,
+        lineIndex: job.lineIndex,
+        schedule: job.schedule,
+        command: job.command,
+        comment: job.comment,
+        raw: job.raw
+      }))
+    });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.stderr || err.message });
   }

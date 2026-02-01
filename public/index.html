@@ -59,7 +59,10 @@
         </div>
         <div class="input-meta">
           <span id="chatStatus">Monitoring Telegram</span>
-          <button id="toggleLogs" class="link-btn">View Logs</button>
+          <div class="input-meta-actions">
+            <button id="toggleCron" class="link-btn">Cron Jobs</button>
+            <button id="toggleLogs" class="link-btn">View Logs</button>
+          </div>
         </div>
       </div>
     </div>
@@ -87,6 +90,54 @@
       </div>
     </div>
 
-    <script src="app.js?v=20260201b"></script>
+    <div class="drawer" id="cronDrawer">
+      <div class="drawer-header">
+        <h3>Cron Jobs</h3>
+        <div class="drawer-header-actions">
+          <button id="refreshCron" class="btn-icon" title="Refresh Cron Jobs">↻</button>
+          <button id="closeCron" class="btn-icon">✕</button>
+        </div>
+      </div>
+      <div class="drawer-content cron-content">
+        <section class="cron-panel">
+          <div class="cron-panel-header">
+            <h4>Scheduled Jobs</h4>
+            <span class="mono" id="cronCount">0 entries</span>
+          </div>
+          <div id="cronList" class="cron-list">
+            <div class="cron-empty">
+              <p>No cron jobs detected</p>
+              <span class="hint">Use the form below to create one</span>
+            </div>
+          </div>
+        </section>
+        <section class="cron-panel">
+          <div class="cron-panel-header">
+            <h4 id="cronModeLabel">Add Job</h4>
+            <button id="resetCronForm" class="link-btn">Clear</button>
+          </div>
+          <form id="cronForm" class="cron-form">
+            <label class="cron-field">
+              <span>Schedule</span>
+              <input id="cronSchedule" placeholder="e.g. */5 * * * *" required />
+            </label>
+            <label class="cron-field">
+              <span>Command</span>
+              <textarea id="cronCommand" rows="2" placeholder="/usr/bin/node ~/bot.js" required></textarea>
+            </label>
+            <label class="cron-field">
+              <span>Comment (optional)</span>
+              <input id="cronComment" placeholder="Describe this job" />
+            </label>
+            <div class="cron-form-actions">
+              <span id="cronStatus" class="mono"></span>
+              <button type="submit" class="primary-btn">Save Job</button>
+            </div>
+          </form>
+        </section>
+      </div>
+    </div>
+
+    <script src="app.js?v=20260201c"></script>
   </body>
 </html>

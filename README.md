@@ -14,3 +14,9 @@ Requirements:
 
 Config:
 - Edit config.json if you change AWS/SSH/log paths
+
+Docs:
+- PLAN.md – roadmap / constraints
+- AGENTS.md – environments, tooling (Context7, agent-browser, SSH)
+- TASKS.md – live task list
+- RUNBOOK.md – start/stop, troubleshooting, cron management

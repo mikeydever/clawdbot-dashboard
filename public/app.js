@@ -13,6 +13,19 @@ const sessionLogEl = document.getElementById("sessionLog");
 const runMetaEl = document.getElementById("runMeta");
 const runLogEl = document.getElementById("runLog");
 const logsDrawer = document.getElementById("logsDrawer");
+const cronDrawer = document.getElementById("cronDrawer");
+const cronListEl = document.getElementById("cronList");
+const cronCountEl = document.getElementById("cronCount");
+const cronForm = document.getElementById("cronForm");
+const cronScheduleInput = document.getElementById("cronSchedule");
+const cronCommandInput = document.getElementById("cronCommand");
+const cronCommentInput = document.getElementById("cronComment");
+const cronModeLabel = document.getElementById("cronModeLabel");
+const cronStatusEl = document.getElementById("cronStatus");
+const resetCronFormBtn = document.getElementById("resetCronForm");
+const refreshCronBtn = document.getElementById("refreshCron");
+const toggleCronBtn = document.getElementById("toggleCron");
+const closeCronBtn = document.getElementById("closeCron");
 
 // Debug: Check if elements are found
 console.log("Chat elements found:", {
@@ -25,6 +38,9 @@ console.log("Chat elements found:", {
 let currentSessionFile = null;
 let messageHistory = [];
 let pendingMessages = []; // Track messages sent but not yet confirmed by server
+let cronJobs = [];
+let editingCronIndex = null;
+let cronLoadedOnce = false;
 
 async function getJSON(url, opts) {
   const res = await fetch(url, opts);
@@ -281,6 +297,92 @@ function escapeHtml(text) {
   return div.innerHTML;
 }
 
+function setCronStatus(message, isError = false) {
+  if (!cronStatusEl) return;
+  cronStatusEl.textContent = message || "";
+  cronStatusEl.classList.toggle("error-text", Boolean(isError && message));
+}
+
+function renderCronJobs() {
+  if (!cronListEl) return;
+
+  if (!cronJobs.length) {
+    cronListEl.innerHTML = `
+      <div class="cron-empty">
+        <p>No cron jobs detected</p>
+        <span class="hint">Use the form below to create one</span>
+      </div>
+    `;
+    if (cronCountEl) cronCountEl.textContent = "0 entries";
+    return;
+  }
+
+  const html = cronJobs
+    .map((job) => {
+      return `
+        <div class="cron-job">
+          <div class="cron-job-header">
+            <div>
+              <div class="cron-job-schedule">${escapeHtml(job.schedule || "")}</div>
+              <div class="cron-job-command">${escapeHtml(job.command || "")}</div>
+            </div>
+            <button class="link-btn" data-cron-edit="${job.lineIndex}">Edit</button>
+          </div>
+          ${job.comment ? `<div class="cron-job-comment">${escapeHtml(job.comment)}</div>` : ""}
+        </div>
+      `;
+    })
+    .join("");
+
+  cronListEl.innerHTML = html;
+  if (cronCountEl) {
+    cronCountEl.textContent = `${cronJobs.length} entr${cronJobs.length === 1 ? "y" : "ies"}`;
+  }
+}
+
+async function refreshCronJobs(manual = false) {
+  if (!cronDrawer) return;
+  setCronStatus(manual ? "Refreshing..." : "Loading...");
+  try {
+    const data = await getJSON("/api/cron");
+    cronJobs = data.jobs || [];
+    renderCronJobs();
+    setCronStatus(manual ? "Updated" : "");
+    cronLoadedOnce = true;
+  } catch (err) {
+    setCronStatus(err.message, true);
+    if (cronListEl) {
+      cronListEl.innerHTML = `
+        <div class="cron-empty">
+          <p>Failed to load cron jobs</p>
+          <span class="hint">${escapeHtml(err.message)}</span>
+        </div>`;
+    }
+  }
+}
+
+function loadCronJob(job) {
+  if (!cronForm || !job) return;
+  cronScheduleInput.value = job.schedule || "";
+  cronCommandInput.value = job.command || "";
+  cronCommentInput.value = job.comment || "";
+  editingCronIndex = job.lineIndex;
+  if (cronModeLabel) cronModeLabel.textContent = "Edit Job";
+  const submitBtn = cronForm.querySelector("button[type=submit]");
+  if (submitBtn) submitBtn.textContent = "Save Changes";
+  setCronStatus("Editing existing entry");
+}
+
+function resetCronFormFields(resetStatus = true) {
+  if (!cronForm) return;
+  cronForm.reset();
+  editingCronIndex = null;
+  if (cronModeLabel) cronModeLabel.textContent = "Add Job";
+  const submitBtn = cronForm.querySelector("button[type=submit]");
+  if (submitBtn) submitBtn.textContent = "Save Job";
+  if (resetStatus) setCronStatus("");
+}
+
 async function refreshStatus() {
   try {
     const cfg = await getJSON("/api/config");
@@ -419,10 +521,87 @@ document.getElementById("closeLogs").addEventListener("click", () => {
   logsDrawer.classList.remove("open");
 });
 
+if (toggleCronBtn && cronDrawer) {
+  toggleCronBtn.addEventListener("click", () => {
+    cronDrawer.classList.add("open");
+    if (!cronLoadedOnce) {
+      refreshCronJobs();
+    }
+  });
+}
+
+if (closeCronBtn && cronDrawer) {
+  closeCronBtn.addEventListener("click", () => {
+    cronDrawer.classList.remove("open");
+  });
+}
+
+if (refreshCronBtn) {
+  refreshCronBtn.addEventListener("click", () => refreshCronJobs(true));
+}
+
+if (resetCronFormBtn) {
+  resetCronFormBtn.addEventListener("click", (e) => {
+    e.preventDefault();
+    resetCronFormFields();
+  });
+}
+
+if (cronListEl) {
+  cronListEl.addEventListener("click", (event) => {
+    const editBtn = event.target.closest("[data-cron-edit]");
+    if (!editBtn) return;
+    const lineIndex = parseInt(editBtn.getAttribute("data-cron-edit"), 10);
+    const job = cronJobs.find((j) => j.lineIndex === lineIndex);
+    if (job) {
+      loadCronJob(job);
+    }
+  });
+}
+
+if (cronForm) {
+  cronForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const schedule = cronScheduleInput.value.trim();
+    const command = cronCommandInput.value.trim();
+    const comment = cronCommentInput.value.trim();
+
+    if (!schedule || !command) {
+      setCronStatus("Schedule and command are required", true);
+      return;
+    }
+
+    const payload = { schedule, command, comment };
+    const submitBtn = cronForm.querySelector("button[type=submit]");
+    if (submitBtn) submitBtn.disabled = true;
+    const editing = editingCronIndex !== null && editingCronIndex !== undefined;
+    setCronStatus(editing ? "Updating job..." : "Creating job...");
+
+    try {
+      const url = editing ? `/api/cron/${editingCronIndex}` : "/api/cron";
+      const method = editing ? "PUT" : "POST";
+      const data = await getJSON(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      cronJobs = data.jobs || [];
+      renderCronJobs();
+      resetCronFormFields(false);
+      setCronStatus(editing ? "Job updated" : "Job created");
+    } catch (err) {
+      setCronStatus(err.message, true);
+    } finally {
+      if (submitBtn) submitBtn.disabled = false;
+    }
+  });
+}
+
 // Close drawer on escape
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
     logsDrawer.classList.remove("open");
+    if (cronDrawer) cronDrawer.classList.remove("open");
   }
 });
 

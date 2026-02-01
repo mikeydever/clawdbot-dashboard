@@ -410,6 +410,45 @@ app.get("/api/logs", async (req, res) => {
   res.json(result);
 });
 
+// Telegram Bot API helper
+async function sendTelegramMessage(botToken, chatId, text) {
+  const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
+  const payload = JSON.stringify({
+    chat_id: chatId,
+    text: text,
+    parse_mode: "HTML"
+  });
+  
+  return new Promise((resolve, reject) => {
+    const https = require('https');
+    const req = https.request(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(payload)
+      }
+    }, (res) => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        try {
+          const result = JSON.parse(data);
+          if (result.ok) {
+            resolve(result.result);
+          } else {
+            reject(new Error(result.description || 'Telegram API error'));
+          }
+        } catch (e) {
+          reject(e);
+        }
+      });
+    });
+    req.on('error', reject);
+    req.write(payload);
+    req.end();
+  });
+}
+
 app.post("/api/chat", async (req, res) => {
   const cfg = loadConfig();
   const { message } = req.body;
@@ -419,44 +458,44 @@ app.post("/api/chat", async (req, res) => {
   }
   
   try {
-    const sessionGlob = `${cfg.paths.sessions}/*.jsonl`;
-    const latestSession = await sshLatestFile(cfg, sessionGlob);
+    // Use Telegram Bot API to send message
+    // This ensures the message flows through clawdbot's normal pipeline
+    const botToken = cfg.telegram?.botToken;
+    const chatId = cfg.telegram?.chatId;
     
-    if (!latestSession) {
-      return res.status(404).json({ ok: false, error: "No active session found" });
+    if (!botToken || !chatId) {
+      // Fallback: store in pending file for clawdbot to poll
+      const pendingDir = expandTilde('~/.clawdbot/dashboard-pending');
+      if (!fs.existsSync(pendingDir)) {
+        fs.mkdirSync(pendingDir, { recursive: true });
+      }
+      
+      const pendingFile = path.join(pendingDir, 'messages.jsonl');
+      const entry = JSON.stringify({
+        timestamp: new Date().toISOString(),
+        message: message,
+        source: 'dashboard'
+      }) + '\n';
+      
+      fs.appendFileSync(pendingFile, entry);
+      
+      return res.json({ 
+        ok: true, 
+        method: 'pending',
+        note: 'Message queued for clawdbot to pick up'
+      });
     }
     
-    // Get session ID from filename
-    const sessionId = latestSession.split('/').pop().replace('.jsonl', '');
+    // Send via Telegram Bot API
+    const result = await sendTelegramMessage(botToken, chatId, `📊 <b>Dashboard</b>: ${message}`);
     
-    // Format message like clawdbot does (with metadata wrapper that triggers gateway processing)
-    const timestamp = new Date().toISOString();
-    const messageEntry = JSON.stringify({
-      type: "message",
-      id: `dash_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-      parentId: null,
-      timestamp: timestamp,
-      message: {
-        role: "user",
-        content: [{ type: "text", text: `[Dashboard ${timestamp}] ${message}` }],
-        timestamp: Date.now()
-      }
+    res.json({ 
+      ok: true, 
+      method: 'telegram',
+      messageId: result.message_id
     });
-    
-    // Append to session file
-    const escapedEntry = messageEntry.replace(/'/g, "'\"'\"'");
-    const cmd = `echo '${escapedEntry}' >> "${latestSession}"`;
-    const args = sshArgs(cfg).concat([cmd]);
-    await execFileAsync("ssh", args);
-    
-    // Trigger the gateway to check for new messages by touching the session file
-    const touchCmd = `touch "${latestSession}"`;
-    const touchArgs = sshArgs(cfg).concat([touchCmd]);
-    await execFileAsync("ssh", touchArgs);
-    
-    res.json({ ok: true, sessionFile: latestSession });
   } catch (err) {
-    res.status(500).json({ ok: false, error: err.stderr || err.message });
+    res.status(500).json({ ok: false, error: err.message || String(err) });
   }
 });
 

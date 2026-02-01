@@ -13,6 +13,10 @@
     "url": "http://localhost:3839",
     "token": "ac3221c7-53c8-41f3-8f99-68421b455c4e"
   },
+  "telegram": {
+    "botToken": "8462039143:AAGh5KVHI3PENwrRVP_SxQ18FQz6UaQTwdU",
+    "chatId": "8150409373"
+  },
   "paths": {
     "sessions": "~/.clawdbot/agents/main/sessions",
     "runOutput": "/tmp/clawdbot"

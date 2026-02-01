@@ -2,16 +2,11 @@
 
 Status legend: ✅ Done | 🔄 In Progress | 📝 Backlog
 
-## Active
-- 🔄 **Session Selector** (mm - 2026-02-01)
-  - List all available session files
-  - Show metadata (start time, message count, duration)
-  - Switch between conversations
-
-## Recently Completed
-- ✅ **Tool Call Visualization** (mm - 2026-02-01) – Shows when mm uses tools (exec, read, edit) with purple/green indicators
-- ✅ **Working Chat via Telegram API** (mm - 2026-02-01) – Bidirectional chat working through Telegram Bot API
-- ✅ **Local Mode Support** (mm - 2026-02-01) – Dashboard runs on same host as clawdbot without SSH keys
+## Recently Completed (Last 30 min)
+- ✅ **Session Selector** (mm - 2026-02-01) – Switch between conversation histories via dropdown
+- ✅ **Tool Call Visualization** (mm - 2026-02-01) – Shows when mm uses tools with purple/green indicators  
+- ✅ **Working Chat via Telegram API** (mm - 2026-02-01) – Bidirectional chat through Telegram Bot API
+- ✅ **Local Mode Support** (mm - 2026-02-01) – No SSH keys needed when on same host
 
 ## Backlog (Priority Order)
 1. 📝 **Cost/Observability** – Fireworks credits, disk usage, memory, heartbeat
@@ -22,5 +17,6 @@ Status legend: ✅ Done | 🔄 In Progress | 📝 Backlog
 6. 📝 **Message insights** – Filter by tool calls, thinking spans, exports
 
 ## Coordination Notes
-- Use this file as a lightweight Kanban before GitHub Issues exist.
-- Update entries with short context (who/when) to keep clawdbot and human contributors aligned.
+- Dashboard is functional with core features working
+- Next priority: Cost tracking and system observability
+- All changes committed to git (need to push from your Mac)

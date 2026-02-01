@@ -3,17 +3,15 @@
 Status legend: ✅ Done | 🔄 In Progress | 📝 Backlog
 
 ## Active
-- 🔄 **Working Chat via Telegram API** (mm - 2026-02-01)
-  - Replaced file-append approach with Telegram Bot API
-  - Messages now flow through normal clawdbot pipeline
-  - Added telegram config section to config.json
-- 📝 **Tool Call Visualization** – Show when mm uses tools (exec, read, edit, etc.)
-- 📝 **Session Selector** – Switch between conversation histories
+- 🔄 **Session Selector** (mm - 2026-02-01)
+  - List all available session files
+  - Show metadata (start time, message count, duration)
+  - Switch between conversations
 
 ## Recently Completed
+- ✅ **Tool Call Visualization** (mm - 2026-02-01) – Shows when mm uses tools (exec, read, edit) with purple/green indicators
+- ✅ **Working Chat via Telegram API** (mm - 2026-02-01) – Bidirectional chat working through Telegram Bot API
 - ✅ **Local Mode Support** (mm - 2026-02-01) – Dashboard runs on same host as clawdbot without SSH keys
-- ✅ **View-only chat stability** – Fixed ordering, metadata stripping, auto-scroll
-- ✅ **Cron drawer MVP** – List, create, edit cron jobs
 
 ## Backlog (Priority Order)
 1. 📝 **Cost/Observability** – Fireworks credits, disk usage, memory, heartbeat

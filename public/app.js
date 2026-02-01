@@ -26,6 +26,7 @@ const resetCronFormBtn = document.getElementById("resetCronForm");
 const refreshCronBtn = document.getElementById("refreshCron");
 const toggleCronBtn = document.getElementById("toggleCron");
 const closeCronBtn = document.getElementById("closeCron");
+const sessionSelect = document.getElementById("sessionSelect");
 
 // Debug: Check if elements are found
 console.log("Chat elements found:", {
@@ -697,6 +698,74 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
+// Session management
+let availableSessions = [];
+let currentSessionId = null;
+
+async function loadSessions() {
+  try {
+    const data = await getJSON("/api/sessions");
+    availableSessions = data.sessions || [];
+    
+    // Populate dropdown
+    if (sessionSelect) {
+      sessionSelect.innerHTML = availableSessions.map(s => {
+        const date = new Date(s.modified).toLocaleDateString();
+        const time = new Date(s.modified).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+        const label = `${date} ${time} (${s.messageCount} msgs)`;
+        return `<option value="${s.id}">${label}</option>`;
+      }).join('');
+      
+      // Select current session if known
+      if (currentSessionFile && !currentSessionId) {
+        const current = availableSessions.find(s => s.file === currentSessionFile);
+        if (current) {
+          currentSessionId = current.id;
+          sessionSelect.value = current.id;
+        }
+      }
+    }
+  } catch (e) {
+    console.error("Failed to load sessions:", e);
+    if (sessionSelect) {
+      sessionSelect.innerHTML = '<option value="">Error loading sessions</option>';
+    }
+  }
+}
+
+async function switchSession(sessionId) {
+  if (!sessionId) return;
+  
+  try {
+    const data = await getJSON(`/api/sessions/${sessionId}`);
+    currentSessionId = sessionId;
+    currentSessionFile = data.file;
+    
+    // Parse and display session content
+    const messages = parseSessionLines(data.lines || [], 50);
+    messageHistory = messages;
+    renderMessages([...messageHistory, ...pendingMessages]);
+    
+    // Update meta display
+    if (sessionMetaEl) {
+      sessionMetaEl.textContent = data.file;
+    }
+  } catch (e) {
+    console.error("Failed to switch session:", e);
+    alert("Failed to load session: " + e.message);
+  }
+}
+
+// Session selector event listener
+if (sessionSelect) {
+  sessionSelect.addEventListener("change", (e) => {
+    const sessionId = e.target.value;
+    if (sessionId && sessionId !== currentSessionId) {
+      switchSession(sessionId);
+    }
+  });
+}
+
 // Attach event listeners with checks
 if (chatSendBtn && chatInput) {
   console.log("Attaching chat event listeners");
@@ -724,6 +793,7 @@ if (chatSendBtn && chatInput) {
 async function boot() {
   console.log("Boot: Starting dashboard...");
   await refreshStatus();
+  await loadSessions();
   await refreshLogs();
   
   setInterval(() => {

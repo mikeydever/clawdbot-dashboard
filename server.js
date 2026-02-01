@@ -499,6 +499,94 @@ app.post("/api/chat", async (req, res) => {
   }
 });
 
+// List all sessions with metadata
+app.get("/api/sessions", async (req, res) => {
+  const cfg = loadConfig();
+  try {
+    const sessionGlob = expandTilde(cfg.paths.sessions);
+    const { execSync } = require('child_process');
+    
+    // Get all session files
+    const cmd = `ls -t ${sessionGlob}/*.jsonl 2>/dev/null || echo ""`;
+    const result = execSync(cmd).toString().trim();
+    
+    if (!result) {
+      return res.json({ sessions: [] });
+    }
+    
+    const files = result.split('\n').filter(f => f);
+    
+    // Get metadata for each session
+    const sessions = files.map(file => {
+      const stats = fs.statSync(file);
+      const filename = path.basename(file);
+      const sessionId = filename.replace('.jsonl', '');
+      
+      // Count messages in file
+      let messageCount = 0;
+      let firstMessage = null;
+      let lastMessage = null;
+      
+      try {
+        const content = fs.readFileSync(file, 'utf8');
+        const lines = content.split('\n').filter(l => l.trim());
+        messageCount = lines.length;
+        
+        if (lines.length > 0) {
+          const first = JSON.parse(lines[0]);
+          const last = JSON.parse(lines[lines.length - 1]);
+          firstMessage = first.timestamp || first.time;
+          lastMessage = last.timestamp || last.time;
+        }
+      } catch (e) {
+        // Ignore parse errors
+      }
+      
+      return {
+        id: sessionId,
+        file: file,
+        filename: filename,
+        size: stats.size,
+        modified: stats.mtime,
+        messageCount,
+        firstMessage,
+        lastMessage
+      };
+    });
+    
+    res.json({ sessions });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message || String(err) });
+  }
+});
+
+// Get specific session content
+app.get("/api/sessions/:id", async (req, res) => {
+  const cfg = loadConfig();
+  const sessionId = req.params.id;
+  
+  try {
+    const sessionFile = expandTilde(`${cfg.paths.sessions}/${sessionId}.jsonl`);
+    
+    if (!fs.existsSync(sessionFile)) {
+      return res.status(404).json({ ok: false, error: "Session not found" });
+    }
+    
+    const lines = fs.readFileSync(sessionFile, 'utf8')
+      .split('\n')
+      .filter(l => l.trim())
+      .slice(-200); // Last 200 lines
+    
+    res.json({
+      id: sessionId,
+      file: sessionFile,
+      lines
+    });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message || String(err) });
+  }
+});
+
 app.get("/api/cron", async (req, res) => {
   const cfg = loadConfig();
   try {

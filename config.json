@@ -1,0 +1,22 @@
+{
+  "aws": {
+    "region": "us-east-1",
+    "instanceId": "i-0b6bdc7f1f7c0d123",
+    "instanceName": "clawdbot-gateway"
+  },
+  "ssh": {
+    "host": "100.76.81.47",
+    "user": "ubuntu",
+    "keyPath": "~/.ssh/John-Amazon.pem"
+  },
+  "gateway": {
+    "url": "http://localhost:3839",
+    "token": "ac3221c7-53c8-41f3-8f99-68421b455c4e"
+  },
+  "paths": {
+    "sessions": "~/.clawdbot/agents/main/sessions",
+    "runOutput": "/tmp/clawdbot"
+  },
+  "logTailLines": 200,
+  "refreshSeconds": 15
+}

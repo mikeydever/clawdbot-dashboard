@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Clawdbot Chat</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app">
+      <header class="app-header">
+        <div class="header-main">
+          <div class="brand">
+            <div class="brand-icon">◈</div>
+            <div>
+              <h1>Clawdbot</h1>
+              <span class="brand-sub">Agent Control</span>
+            </div>
+          </div>
+          <div class="header-actions">
+            <div class="status-pill">
+              <span class="status-dot" id="awsDot"></span>
+              <span id="awsState">checking...</span>
+            </div>
+            <div class="status-pill">
+              <span class="status-dot" id="sshDot"></span>
+              <span id="sshState">checking...</span>
+            </div>
+            <button id="startBtn" class="btn-icon" title="Start Instance">▶</button>
+            <button id="refreshBtn" class="btn-icon" title="Refresh">↻</button>
+          </div>
+        </div>
+        <div class="connection-bar">
+          <span class="mono" id="sshHost">-</span>
+          <span class="error-text" id="statusErrors"></span>
+        </div>
+      </header>
+
+      <main class="chat-container">
+        <div class="messages" id="messages">
+          <div class="empty-state">
+            <div class="empty-icon">◈</div>
+            <p>Ready to chat</p>
+            <span class="hint">Type a message below to start</span>
+          </div>
+        </div>
+      </main>
+
+      <div class="input-area">
+        <div class="view-only-banner">
+          <span class="view-only-icon">👁️</span>
+          <div class="view-only-text">
+            <strong>View-Only Mode</strong>
+            <span>Chat via Telegram to see messages here in real-time</span>
+          </div>
+        </div>
+        <div class="input-meta">
+          <span id="chatStatus">Monitoring Telegram</span>
+          <button id="toggleLogs" class="link-btn">View Logs</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="drawer" id="logsDrawer">
+      <div class="drawer-header">
+        <h3>System Logs</h3>
+        <button id="closeLogs" class="btn-icon">✕</button>
+      </div>
+      <div class="drawer-content">
+        <div class="log-section">
+          <div class="log-header">
+            <span>Session Log</span>
+            <span class="mono" id="sessionMeta"></span>
+          </div>
+          <pre id="sessionLog" class="log-content"></pre>
+        </div>
+        <div class="log-section">
+          <div class="log-header">
+            <span>Gateway Log</span>
+            <span class="mono" id="runMeta"></span>
+          </div>
+          <pre id="runLog" class="log-content"></pre>
+        </div>
+      </div>
+    </div>
+
+    <script src="app.js?v=20260201b"></script>
+  </body>
+</html>

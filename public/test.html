@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html>
+<head><title>Test Parse</title></head>
+<body>
+<h1>Testing Message Parse</h1>
+<pre id="output"></pre>
+<script>
+fetch('/api/logs')
+  .then(r => r.json())
+  .then(data => {
+    document.getElementById('output').textContent = 
+      'Lines: ' + data.sessionLines.length + '\n' +
+      'Session: ' + data.sessionFile + '\n\n' +
+      'Last line:\n' + data.sessionLines[data.sessionLines.length - 1];
+  })
+  .catch(e => {
+    document.getElementById('output').textContent = 'Error: ' + e.message;
+  });
+</script>
+</body>
+</html>

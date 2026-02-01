@@ -1,0 +1,16 @@
+# Dependencies
+node_modules/
+
+# Logs
+*.log
+nohup.out
+
+# Temporary files
+/tmp/
+test-parse.js
+
+# Screenshots (optional - comment out if you want to keep them)
+screenshots/
+
+# OS files
+.DS_Store

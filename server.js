@@ -31,12 +31,18 @@ function execFileAsync(cmd, args, opts = {}) {
 }
 
 async function sshCrontabRead(cfg) {
+  if (isLocalMode(cfg)) {
+    return localCrontabRead();
+  }
   const args = sshArgs(cfg).concat(["crontab -l 2>/dev/null || true"]);
   const { stdout } = await execFileAsync("ssh", args);
   return stdout.replace(/\r/g, "");
 }
 
 async function sshCrontabWrite(cfg, content) {
+  if (isLocalMode(cfg)) {
+    return localCrontabWrite(content);
+  }
   let payload = content.replace(/\r/g, "");
   if (!payload.endsWith("\n")) {
     payload += "\n";
@@ -177,6 +183,24 @@ async function awsStart(cfg) {
   return stdout.trim();
 }
 
+function isLocalMode(cfg) {
+  // Check if we're running on the same host as the target
+  const targetHost = cfg.ssh.host;
+  if (targetHost === 'localhost' || targetHost === '127.0.0.1') return true;
+  
+  // Check if target matches any of our network interfaces
+  try {
+    const { execSync } = require('child_process');
+    const hostname = execSync('hostname -I 2>/dev/null || echo ""').toString().trim();
+    const ips = hostname.split(/\s+/).filter(Boolean);
+    if (ips.includes(targetHost)) return true;
+  } catch (e) {
+    // Ignore errors
+  }
+  
+  return false;
+}
+
 function sshArgs(cfg) {
   const keyPath = expandTilde(cfg.ssh.keyPath);
   const remote = `${cfg.ssh.user}@${cfg.ssh.host}`;
@@ -193,13 +217,79 @@ function sshArgs(cfg) {
   ];
 }
 
+// Local execution helpers
+async function localExec(cmd, args) {
+  return execFileAsync(cmd, args, { shell: false });
+}
+
+async function localCrontabRead() {
+  try {
+    const { stdout } = await localExec('crontab', ['-l']);
+    return stdout.replace(/\r/g, "");
+  } catch (err) {
+    // No crontab exists yet
+    return "";
+  }
+}
+
+async function localCrontabWrite(content) {
+  let payload = content.replace(/\r/g, "");
+  if (!payload.endsWith("\n")) {
+    payload += "\n";
+  }
+  const { execSync } = require('child_process');
+  execSync('crontab -', { input: payload });
+}
+
+async function localLatestFile(globPath) {
+  const expandedPath = expandTilde(globPath);
+  const { execSync } = require('child_process');
+  try {
+    const result = execSync(`ls -t ${expandedPath} 2>/dev/null | head -1`).toString().trim();
+    return result;
+  } catch (e) {
+    return "";
+  }
+}
+
+async function localTail(filePath, lines) {
+  const expandedPath = expandTilde(filePath);
+  const { execSync } = require('child_process');
+  return execSync(`tail -n ${lines} "${expandedPath}"`).toString();
+}
+
+async function localAppendChat(sessionFile, message) {
+  const expandedPath = expandTilde(sessionFile);
+  const msgId = 'msg_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+  const timestamp = new Date().toISOString();
+  
+  const chatLine = JSON.stringify({
+    type: "message",
+    id: msgId,
+    timestamp: timestamp,
+    message: {
+      role: "user",
+      content: [{ type: "text", text: message }],
+      timestamp: Date.now()
+    }
+  });
+  
+  fs.appendFileSync(expandedPath, chatLine + '\n');
+}
+
 async function sshCheck(cfg) {
+  if (isLocalMode(cfg)) {
+    return true;
+  }
   const args = sshArgs(cfg).concat(["echo ok"]);
   const { stdout } = await execFileAsync("ssh", args);
   return stdout.trim() === "ok";
 }
 
 async function sshLatestFile(cfg, globPath) {
+  if (isLocalMode(cfg)) {
+    return localLatestFile(globPath);
+  }
   const cmd = `ls -t ${globPath} 2>/dev/null | head -1`;
   const args = sshArgs(cfg).concat([cmd]);
   const { stdout } = await execFileAsync("ssh", args);
@@ -207,6 +297,9 @@ async function sshLatestFile(cfg, globPath) {
 }
 
 async function sshTail(cfg, filePath, lines) {
+  if (isLocalMode(cfg)) {
+    return localTail(filePath, lines);
+  }
   const cmd = `tail -n ${lines} "${filePath}"`;
   const args = sshArgs(cfg).concat([cmd]);
   const { stdout } = await execFileAsync("ssh", args);
@@ -214,6 +307,9 @@ async function sshTail(cfg, filePath, lines) {
 }
 
 async function sshAppendChat(cfg, sessionFile, message) {
+  if (isLocalMode(cfg)) {
+    return localAppendChat(sessionFile, message);
+  }
   // Generate a unique message ID
   const msgId = 'msg_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
   const timestamp = new Date().toISOString();

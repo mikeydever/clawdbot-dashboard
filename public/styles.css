@@ -397,6 +397,65 @@ body::after {
   background: var(--surface);
   border-color: var(--warning);
   color: var(--warning);
+}
+
+/* Tool Messages */
+.message.tool {
+  align-self: flex-start;
+  max-width: 70%;
+  opacity: 0.9;
+}
+
+.message.tool-running {
+  animation: toolPulse 1.5s ease-in-out infinite;
+}
+
+@keyframes toolPulse {
+  0%, 100% { opacity: 0.9; }
+  50% { opacity: 0.6; }
+}
+
+.tool-avatar {
+  background: linear-gradient(135deg, #2a1a3a 0%, #3a1a4a 100%);
+  color: #ff00ff;
+  border: 1px solid rgba(255, 0, 255, 0.3);
+  font-size: 12px;
+}
+
+.tool-bubble {
+  background: linear-gradient(135deg, #1a1a2e 0%, #2a1a3a 100%);
+  border-color: rgba(255, 0, 255, 0.2);
+  padding: 10px 14px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tool-name {
+  color: #ff66ff;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.tool-duration {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.message.tool-done .tool-avatar {
+  color: #00ff88;
+  border-color: rgba(0, 255, 136, 0.3);
+}
+
+.message.tool-done .tool-bubble {
+  border-color: rgba(0, 255, 136, 0.2);
+}
+
+.message.tool-done .tool-name {
+  color: #66ffaa;
   font-size: 11px;
   text-align: center;
   font-family: 'Space Grotesk', sans-serif;

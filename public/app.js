@@ -110,6 +110,67 @@ function extractTextContent(content) {
   return "";
 }
 
+// Track active tool calls for visualization
+const activeToolCalls = new Map();
+
+function parseToolCallsFromLogs(lines) {
+  const toolEvents = [];
+  
+  for (const line of lines) {
+    if (!line.trim()) continue;
+    
+    try {
+      const obj = JSON.parse(line);
+      
+      // Look for tool start/end events in clawdbot logs
+      // Format: { subsystem: "agent/embedded", ... embedded run tool start/end ... }
+      if (obj._meta?.path?.fileName === "subsystem.js") {
+        const text = JSON.stringify(obj);
+        
+        // Tool start
+        const startMatch = text.match(/embedded run tool start.*?tool[=:]\s*"?(\w+)"?/);
+        if (startMatch) {
+          const toolName = startMatch[1];
+          const toolCallId = text.match(/toolCallId[=:]\s*"?functions\.(\w+:\d+)"?/)?.[1] || `tool-${Date.now()}`;
+          activeToolCalls.set(toolCallId, { name: toolName, start: obj.time || new Date().toISOString() });
+          
+          toolEvents.push({
+            type: 'tool_start',
+            tool: toolName,
+            id: toolCallId,
+            timestamp: obj.time || new Date().toISOString(),
+            raw: line
+          });
+        }
+        
+        // Tool end
+        const endMatch = text.match(/embedded run tool end.*?tool[=:]\s*"?(\w+)"?/);
+        if (endMatch) {
+          const toolName = endMatch[1];
+          const toolCallId = text.match(/toolCallId[=:]\s*"?functions\.(\w+:\d+)"?/)?.[1];
+          const startInfo = toolCallId ? activeToolCalls.get(toolCallId) : null;
+          const duration = startInfo ? Date.now() - new Date(startInfo.start).getTime() : null;
+          
+          toolEvents.push({
+            type: 'tool_end',
+            tool: toolName,
+            id: toolCallId,
+            timestamp: obj.time || new Date().toISOString(),
+            duration: duration,
+            raw: line
+          });
+          
+          if (toolCallId) activeToolCalls.delete(toolCallId);
+        }
+      }
+    } catch (e) {
+      // Skip non-JSON lines
+    }
+  }
+  
+  return toolEvents;
+}
+
 function parseSessionLines(lines, maxMessages = 50) {
   const messages = [];
   const seenIds = new Set();
@@ -224,7 +285,7 @@ function renderMessages(messages) {
       <div class="empty-state">
         <div class="empty-icon">◈</div>
         <p>Waiting for messages</p>
-        <span class="hint">Send a message via Telegram to see it here</span>
+        <span class="hint">Send a message via Telegram or Dashboard to start</span>
       </div>
     `;
     return;
@@ -248,13 +309,33 @@ function renderMessages(messages) {
   
   console.log("Filtered to:", filteredMessages.length, "messages");
   
-  // Simple message rendering - just show messages
+  // Render messages with tool call support
   const html = filteredMessages.map((msg, index) => {
     const role = msg.role || "unknown";
+    const delay = Math.min(index * 0.05, 0.5);
+    const time = formatTime(msg.timestamp);
+    
+    // Tool message rendering
+    if (role === "tool") {
+      const toolIcon = msg.toolType === 'start' ? '▶' : '✓';
+      const toolClass = msg.toolType === 'start' ? 'tool-running' : 'tool-done';
+      const duration = msg.duration ? ` (${msg.duration}ms)` : '';
+      
+      return `
+        <div class="message tool ${toolClass}" style="animation-delay: ${delay}s;">
+          <div class="avatar tool-avatar" title="Tool">${toolIcon}</div>
+          <div class="bubble tool-bubble">
+            <span class="tool-name">${escapeHtml(msg.toolName)}</span>
+            ${msg.toolType === 'end' && msg.duration ? `<span class="tool-duration">${duration}</span>` : ''}
+            ${time ? `<div class="timestamp">${time}</div>` : ''}
+          </div>
+        </div>
+      `;
+    }
+    
+    // Regular message rendering
     const avatar = role === "user" ? "◈" : role === "assistant" ? "◉" : "◎";
     const label = role === "user" ? "You" : role === "assistant" ? "Clawdbot" : "System";
-    const time = formatTime(msg.timestamp);
-    const delay = Math.min(index * 0.05, 0.5);
     
     let contentClass = "";
     let displayContent = msg.content || "";
@@ -264,7 +345,7 @@ function renderMessages(messages) {
       displayContent = "...";
     }
     
-    const html = `
+    return `
       <div class="message ${role}" style="animation-delay: ${delay}s; display: flex !important;">
         <div class="avatar" title="${label}">${avatar}</div>
         <div class="bubble ${contentClass}">
@@ -275,9 +356,6 @@ function renderMessages(messages) {
         </div>
       </div>
     `;
-    
-    console.log(`Rendering ${role} message:`, displayContent?.substring(0, 50));
-    return html;
   }).join("");
   
   messagesEl.innerHTML = html;
@@ -415,23 +493,37 @@ async function refreshLogs() {
     sessionLogEl.textContent = (data.sessionLines || []).join("\n") || "(empty)";
     runLogEl.textContent = (data.runLines || []).join("\n") || "(empty)";
     
-    // Parse and render chat messages (limit to last 50)
-    const newMessages = parseSessionLines(data.sessionLines || [], 50);
-    console.log("refreshLogs: parseSessionLines returned", newMessages.length, "messages");
+    // Parse chat messages from session
+    const chatMessages = parseSessionLines(data.sessionLines || [], 50);
+    console.log("refreshLogs: parseSessionLines returned", chatMessages.length, "messages");
     
-    // Check if messages actually changed by comparing IDs
-    const currentIds = messageHistory.map(m => m.id).join(',');
-    const newIds = newMessages.map(m => m.id).join(',');
+    // Parse tool calls from run logs
+    const toolEvents = parseToolCallsFromLogs(data.runLines || []);
+    const toolMessages = toolEvents.map(event => ({
+      id: `tool-${event.id}`,
+      role: 'tool',
+      toolType: event.type === 'tool_start' ? 'start' : 'end',
+      toolName: event.tool,
+      duration: event.duration,
+      timestamp: event.timestamp,
+      content: `${event.tool} ${event.type === 'tool_start' ? 'started' : 'completed'}`
+    }));
     
-    console.log("refreshLogs: Updating messageHistory and rendering");
-    messageHistory = newMessages;
-    // Clear pending messages that are now confirmed (exist in server response)
-    const serverContent = newMessages.map(m => m.content).join('|');
+    // Merge and sort by timestamp
+    const allMessages = [...chatMessages, ...toolMessages].sort((a, b) => {
+      return new Date(a.timestamp || 0) - new Date(b.timestamp || 0);
+    }).slice(-50); // Keep last 50 total
+    
+    console.log("refreshLogs: Total messages after merge:", allMessages.length);
+    
+    messageHistory = allMessages;
+    
+    // Clear pending messages that are now confirmed
+    const serverContent = chatMessages.map(m => m.content).join('|');
     pendingMessages = pendingMessages.filter(pending => {
-      // Keep pending message if its content isn't in server messages yet
       return !serverContent.includes(pending.content);
     });
-    // Always render (comparison was causing issues)
+    
     renderMessages([...messageHistory, ...pendingMessages]);
   } catch (e) {
     messagesEl.innerHTML = `
